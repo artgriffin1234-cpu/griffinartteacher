@@ -1448,7 +1448,20 @@ function rmS(id){if(confirm('삭제하시겠습니까?')){staff=staff.filter(s=>
    ATTENDANCE
 ═══════════════════════════════════════ */
 function viewAtt(id){attSelId=id;showPage('attendance');attOpenCal(id);}
-function setAttCls(c){attCls=c;attSub='전체';attSelId=null;const el=document.getElementById('att-sel-name');if(el)el.textContent='강사를 선택하세요';rAP();rAC();}
+function setAttCls(c){
+  attCls=c;attSub='전체';attSelId=null;
+  const el=document.getElementById('att-sel-name');
+  const noSub=(CLS[c]||[]).length===0;
+  if(el)el.textContent=noSub?c+' 전체':'강사를 선택하세요';
+  rAP();
+  if(noSub){
+    // 세부반 없는 반(중등반/기타)은 바로 그룹 달력 뷰로 전환
+    document.getElementById('att-list-view').style.display='none';
+    document.getElementById('att-cal-view').style.display='';
+    document.getElementById('att-back-btn').style.display='';
+  }
+  rAC();
+}
 function setAttSub(sub){attSub=sub;attSelId=null;const el=document.getElementById('att-sel-name');if(el)el.textContent=sub!=='전체'?attCls+' '+sub+' 전체':'강사를 선택하세요';rAP();rAC();}
 let attSelId=null;
 function attBack(){
@@ -1498,10 +1511,14 @@ function rAC(){
   const startLabel=`${startD.getFullYear()}년 ${startD.getMonth()+1}월 10일`;
   const endLabel=`${endD.getFullYear()}년 ${endD.getMonth()+1}월 9일`;
 
-  // ── 그룹 달력 모드: 세부반이 선택됐고 개별 강사 미선택 ──
-  if(!s && attCls!=='전체' && attSub!=='전체'){
-    const groupStaff=staff.filter(x=>x.cls===attCls&&x.sub===attSub);
-    document.getElementById('cal-title').textContent=`${payY}년 ${payM}월 — ${attCls} ${attSub} 전체`;
+  // ── 그룹 달력 모드: 특정 반이 선택됐고 개별 강사 미선택 ──
+  // 세부반 없는 반(중등반/기타)은 attSub==='전체'인 채로도 그룹 달력 표시
+  const noSubCls=(CLS[attCls]||[]).length===0;
+  const isGroupMode=!s&&attCls!=='전체'&&(attSub!=='전체'||noSubCls);
+  if(isGroupMode){
+    const groupStaff=attSub==='전체'?staff.filter(x=>x.cls===attCls):staff.filter(x=>x.cls===attCls&&x.sub===attSub);
+    const groupTitle=attSub==='전체'?`${attCls} 전체`:`${attCls} ${attSub} 전체`;
+    document.getElementById('cal-title').textContent=`${payY}년 ${payM}월 — ${groupTitle}`;
     document.getElementById('cal-labels').innerHTML=DOW.map((d,i)=>`<div class="cdlbl${i===6?' sun':i===5?' sat':''}">${d}</div>`).join('');
     const startDow=(startD.getDay()+6)%7;
     let h='';
@@ -1542,7 +1559,7 @@ function rAC(){
     if(rem2){for(let i=1;i<=7-rem2;i++){const pad=new Date(endD);pad.setDate(pad.getDate()+i);h+=`<div class="cday om"><div class="cdn">${pad.getDate()}</div></div>`;}}
     document.getElementById('cal-grid').innerHTML=h;
     // 출근 기록 테이블: 반 전체 날짜별 정렬
-    document.getElementById('att-lbl').textContent=`${attCls} ${attSub} 출근 기록 (${startLabel} ~ ${endLabel})`;
+    document.getElementById('att-lbl').textContent=`${groupTitle} 출근 기록 (${startLabel} ~ ${endLabel})`;
     const thead=document.getElementById('att-thead');
     if(thead)thead.innerHTML=`<tr><th>날짜</th><th>요일</th><th>강사</th><th>수업</th><th>근무시간</th><th>상태</th><th>메모</th><th></th></tr>`;
     // 날짜별로 모든 강사 출근 기록 합산
@@ -1989,7 +2006,7 @@ function openTime(sid,dk){if(!sid||sid==='null')return;pendId=sid;pendDate=dk;co
 // 그룹 달력에서 날짜 셀 클릭 → 강사 선택 드롭다운 포함 모달 열기
 function openGroupTime(dk){
   pendDate=dk;pendId=null;
-  const groupStaff=staff.filter(x=>x.cls===attCls&&x.sub===attSub);
+  const groupStaff=attSub==='전체'?staff.filter(x=>x.cls===attCls):staff.filter(x=>x.cls===attCls&&x.sub===attSub);
   const sel=document.getElementById('mt-staff-sel');
   sel.innerHTML='<option value="">— 강사 선택 —</option>'+groupStaff.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
   sel.value='';
