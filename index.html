@@ -565,7 +565,7 @@ function upsertStaffRow(ss, r){
 }
 
 function upsertAttRow(ss, tz, r){
-  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH']);
+  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin']);
   var vals = sh.getDataRange().getValues();
   var foundRow = 0;
   vals.forEach(function(row, i){ if(i === 0) return; if(String(row[0]) === String(r[0])){ if(keyDate(row[1], tz) === String(r[1])){ foundRow = i + 1; } } });
@@ -582,7 +582,7 @@ function deleteAttRow(ss, tz, staffId, date){
   hits.reverse().forEach(function(rn){ sh.deleteRow(rn); });
 }
 function replaceStaffAtt(ss, staffId, rows){
-  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH']);
+  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin']);
   var vals = sh.getDataRange().getValues();
   var hits = [];
   vals.forEach(function(row, i){ if(i === 0) return; if(String(row[0]) === String(staffId)){ hits.push(i + 1); } });
