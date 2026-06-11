@@ -924,14 +924,19 @@ function saveSheetURL(){
   if(sheetsURL) testConnection();
   else setSyncStatus('off','URL 없음');
 }
-async function testConnection(){
-  if(!sheetsURL){document.getElementById('url-hint').textContent='URL을 먼저 입력하세요';return;}
+async function testConnection(silent){
+  if(!sheetsURL){const h=document.getElementById('url-hint');if(h)h.textContent='URL을 먼저 입력하세요';return;}
   setSyncStatus('pending','연결 중...');
   try{
     const d=await sheetRead(sheetsURL+'?action=read');
-    if(d&&d.staff){setSyncStatus('ok','구글 시트 연결됨');document.getElementById('url-hint').textContent='연결 성공!';}
-    else throw new Error('응답 형식 오류');
-  }catch(e){setSyncStatus('err','연결 실패 — URL을 확인하세요');document.getElementById('url-hint').textContent='오류: '+e.message;}
+    if(d&&d.staff){
+      setSyncStatus('ok','구글 시트 연결됨');
+      const h=document.getElementById('url-hint');if(h)h.textContent='연결 성공!';
+    } else throw new Error('응답 형식 오류');
+  }catch(e){
+    setSyncStatus('err','연결 실패 — URL을 확인하세요');
+    const h=document.getElementById('url-hint');if(h)h.textContent='오류: '+e.message;
+  }
 }
 function staffToRows(){
   const rows=[['id','name','role','cls','sub','wage','sid','phone','account','birth','region','year','months','tenureAnchor']];
@@ -2154,7 +2159,11 @@ async function refreshLockedFromSheet(id){
 const hasLocal=loadLocal();
 if(lockView!=='staff'&&(!hasLocal||staff.length===0)){loadSampleData();saveLocal();}
 rD();rMC();
-if(sheetsURL&&!lockView){testConnection();pullFromSheets(true);setInterval(function(){if(sheetsURL&&!lockView&&!modalOpen())pullFromSheets(true);},30000);}
+if(sheetsURL&&!lockView){
+  setSyncStatus('pending','연결 중...');
+  pullFromSheets(false);
+  setInterval(function(){if(sheetsURL&&!lockView&&!modalOpen())pullFromSheets(true);},30000);
+}
 if(lockView==='staff')enterLockedMobile(lockStaffId);
 </script>
 </body>
