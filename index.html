@@ -281,6 +281,19 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
         <div class="tb-right"><input class="srch" type="text" placeholder="이름 검색" oninput="setQ('staffset',this.value)"><button class="btn btn-primary" onclick="openAdd()"><i class="ti ti-plus"></i>강사 추가</button></div>
       </div>
       <div class="content">
+        <div class="card" style="margin-bottom:.875rem">
+          <div class="ch"><span class="ch-title">방학 기간 설정 <span style="font-weight:400;font-size:9px;color:var(--tx3)">(기간 중에는 모든 강사 차량비가 지급되지 않습니다)</span></span></div>
+          <div style="padding:.75rem 1rem;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <div style="display:flex;flex-direction:column;gap:2px"><div style="font-size:9px;color:var(--tx3)">시작일</div><input type="date" id="vac-start" style="font-size:11px;padding:3px 6px;border:0.5px solid var(--bd2);border-radius:var(--rm);background:var(--bg);color:var(--tx);font-family:inherit"></div>
+              <span style="color:var(--tx3);margin-top:14px">~</span>
+              <div style="display:flex;flex-direction:column;gap:2px"><div style="font-size:9px;color:var(--tx3)">종료일</div><input type="date" id="vac-end" style="font-size:11px;padding:3px 6px;border:0.5px solid var(--bd2);border-radius:var(--rm);background:var(--bg);color:var(--tx);font-family:inherit"></div>
+              <div style="display:flex;flex-direction:column;gap:2px"><div style="font-size:9px;color:var(--tx3)">메모(선택)</div><input type="text" id="vac-label" placeholder="예: 여름방학" style="font-size:11px;padding:3px 6px;border:0.5px solid var(--bd2);border-radius:var(--rm);background:var(--bg);color:var(--tx);font-family:inherit;width:110px"></div>
+              <button class="btn btn-primary" style="margin-top:14px" onclick="addVacation()"><i class="ti ti-plus"></i>추가</button>
+            </div>
+            <div id="vac-list" style="display:flex;flex-direction:column;gap:4px"></div>
+          </div>
+        </div>
         <div class="tabs" id="ss-cls-tabs"></div>
         <div class="tabs" id="ss-sub-tabs"></div>
         <div id="ss-staff-list" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -501,7 +514,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
         <!-- 구글 시트 연동 설정 -->
         <div class="sync-section">
           <div class="sync-section-title"><span class="step-badge">1</span>구글 시트 준비</div>
-          <p style="font-size:11px;color:var(--tx2);margin-bottom:.625rem">구글 드라이브에서 새 스프레드시트를 만들고 아래 시트 이름 두 개를 추가하세요.</p>
+          <p style="font-size:11px;color:var(--tx2);margin-bottom:.625rem">구글 드라이브에서 새 스프레드시트를 만들고 아래 시트 이름 두 개를 추가하세요. (방학 기간을 저장할 <b>vacation</b> 시트는 앱이 자동으로 만들어줍니다)</p>
           <div class="code-block">시트 이름 1: staff
 시트 이름 2: attendance</div>
         </div>
@@ -517,8 +530,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
     var tz = ss.getSpreadsheetTimeZone();
     var staffSheet = ss.getSheetByName('staff');
     var attSheet   = ss.getSheetByName('attendance');
+    var vacSheet   = ss.getSheetByName('vacation');
     var staffData  = staffSheet ? staffSheet.getDataRange().getValues() : [];
     var attData    = attSheet ? attSheet.getDataRange().getValues() : [];
+    var vacData    = vacSheet ? vacSheet.getDataRange().getValues() : [];
     staffData.forEach(function(row, i){
       if(i === 0) return;
       row.forEach(function(cell, c){ if(cell instanceof Date){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
@@ -527,7 +542,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
       if(i === 0) return;
       if(row[1] instanceof Date){ row[1] = Utilities.formatDate(row[1], tz, 'yyyy-MM-dd'); }
     });
-    var payload = JSON.stringify({staff:staffData, att:attData});
+    vacData.forEach(function(row, i){
+      if(i === 0) return;
+      row.forEach(function(cell, c){ if(cell instanceof Date){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
+    });
+    var payload = JSON.stringify({staff:staffData, att:attData, vacation:vacData});
     var cb = e.parameter.callback;
     if(cb){ return ContentService.createTextOutput(cb + '(' + payload + ')').setMimeType(ContentService.MimeType.JAVASCRIPT); }
     return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
@@ -606,6 +625,29 @@ function deleteStaffRow(ss, staffId){
   }
 }
 
+function upsertVacationRow(ss, r){
+  var sh = ensureSheet(ss, 'vacation', ['id','start','end','label']);
+  var vals = sh.getDataRange().getValues();
+  var foundRow = 0;
+  vals.forEach(function(row, i){ if(i === 0) return; if(String(row[0]) === String(r[0])){ foundRow = i + 1; } });
+  if(foundRow){ sh.getRange(foundRow, 1, 1, r.length).setValues([r]); }
+  else { sh.appendRow(r); }
+}
+function deleteVacationRow(ss, id){
+  var sh = ss.getSheetByName('vacation');
+  if(!sh) return;
+  var vals = sh.getDataRange().getValues();
+  var hits = [];
+  vals.forEach(function(row, i){ if(i === 0) return; if(String(row[0]) === String(id)){ hits.push(i + 1); } });
+  hits.reverse().forEach(function(rn){ sh.deleteRow(rn); });
+}
+function replaceVacations(ss, rows){
+  var sh = ensureSheet(ss, 'vacation', ['id','start','end','label']);
+  var last = sh.getLastRow();
+  if(last > 1){ sh.deleteRows(2, last - 1); }
+  (rows || []).forEach(function(r){ sh.appendRow(r); });
+}
+
 function doPost(e){
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var tz   = ss.getSpreadsheetTimeZone();
@@ -623,9 +665,12 @@ function applyAction(ss, tz, data){
   else if(act === 'clearAll'){ clearAllSheets(ss); }
   else if(act === 'mergeStaff'){ data.rows.forEach(function(r, i){ if(i === 0) return; upsertStaffRow(ss, r); }); }
   else if(act === 'mergeAtt'){ data.rows.forEach(function(r, i){ if(i === 0) return; upsertAttRow(ss, tz, r); }); }
+  else if(act === 'upsertVacation'){ upsertVacationRow(ss, data.row); }
+  else if(act === 'deleteVacation'){ deleteVacationRow(ss, data.id); }
+  else if(act === 'replaceVacations'){ replaceVacations(ss, data.rows); }
 }
 function clearAllSheets(ss){
-  ['staff','attendance'].forEach(function(name){
+  ['staff','attendance','vacation'].forEach(function(name){
     var sh = ss.getSheetByName(name);
     if(sh){ var last = sh.getLastRow(); if(last > 1){ sh.deleteRows(2, last - 1); } }
   });
@@ -775,6 +820,7 @@ const _payInit=curPayYM(),PAY_Y=_payInit[0],PAY_M=_payInit[1];
 let staff=[];
 let archives=[];
 let nextId=100;
+let vacations=[]; // 방학 기간 [{id,start,end,label}] — 기간 중 모든 강사 차량비 미지급
 let curPage='dashboard',dCls='전체',dSub='전체',stCls='전체',stSub='전체',dY=CUR_Y,dM=CUR_M+1,stY=PAY_Y,stM=PAY_M,salY=PAY_Y,salM=PAY_M,salCls='전체',salSub='전체',attCls='전체',attSub='전체',ssCls='전체',ssSub='전체',myY=CUR_Y,myM=CUR_M+1,mySelId=null,myCls='전체',mySub='전체',rosCls='전체',rosSub='전체';
 let calY=PAY_Y,calM=PAY_M-1,mcY=CUR_Y,mcM=CUR_M,arcSel=0;
 let lockView=null,lockStaffId=null;
@@ -797,7 +843,7 @@ let syncConnected=false;
 ═══════════════════════════════════════ */
 function saveLocal(){
   try{
-    localStorage.setItem(LS_KEY,JSON.stringify({staff,archives,nextId,sheetsURL,delTomb,ts:Date.now()}));
+    localStorage.setItem(LS_KEY,JSON.stringify({staff,archives,nextId,sheetsURL,delTomb,vacations,ts:Date.now()}));
     setSaveStatus('ok','로컬 저장됨');
   }catch(e){setSaveStatus('err','저장 실패');}
 }
@@ -840,6 +886,7 @@ function loadLocal(){
     archives=d.archives||[];
     nextId=d.nextId||100;
     sheetsURL=d.sheetsURL||'';
+    vacations=d.vacations||[];
     if(sheetsURL) document.getElementById('sheets-url').value=sheetsURL;
     return true;
   }catch(e){return false;}
@@ -875,7 +922,7 @@ function importLocalBackup(input){
   reader.onload=e=>{
     try{
       const d=JSON.parse(e.target.result);
-      staff=d.staff||[];archives=d.archives||[];nextId=d.nextId||100;sheetsURL=d.sheetsURL||'';
+      staff=d.staff||[];archives=d.archives||[];nextId=d.nextId||100;sheetsURL=d.sheetsURL||'';vacations=d.vacations||[];
       saveLocal();refresh();rMC();alert('백업을 성공적으로 불러왔습니다.');
     }catch(ex){alert('올바른 백업 파일이 아닙니다.');}
   };
@@ -943,6 +990,8 @@ function staffToRows(){
   staff.forEach(s=>rows.push(staffRowFor(s)));
   return rows;
 }
+function vacationRows(){ return vacations.map(v=>[v.id,v.start,v.end,v.label||'']); }
+function pushVacations(){ if(sheetsURL&&!lockView) sheetPost({action:'replaceVacations',rows:vacationRows()}); }
 function attToRows(){
   const rows=[['staffId','date','times','status','memo','regH','susiH','jeongsiH']];
   staff.forEach(s=>{Object.entries(s.att).forEach(([k,v])=>{if(v&&v.times>0){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'']);}});});
@@ -989,6 +1038,7 @@ async function pushToSheets(){
   try{
     await fetch(sheetsURL,{method:'POST',body:JSON.stringify({action:'mergeStaff',rows:staffToRows()})});
     await fetch(sheetsURL,{method:'POST',body:JSON.stringify({action:'mergeAtt',rows:attToRows()})});
+    await fetch(sheetsURL,{method:'POST',body:JSON.stringify({action:'replaceVacations',rows:vacationRows()})});
     setSyncStatus('ok','동기화 완료');setLog('✓ 업로드(병합) 완료 — '+new Date().toLocaleTimeString());
   }catch(e){setSyncStatus('err','업로드 실패');setLog('오류: '+e.message);}
 }
@@ -997,7 +1047,12 @@ async function pullFromSheets(quiet){
   if(!quiet){setSyncStatus('pending','불러오는 중...');setLog('구글 시트에서 데이터를 불러오는 중...');}
   try{
     const d=await sheetRead(sheetsURL+'?action=read');
-    const sRows=d.staff||[];const aRows=d.att||[];
+    const sRows=d.staff||[];const aRows=d.att||[];const vRows=d.vacation||[];
+    // 방학 기간은 시트가 곧 정본(source of truth): 시트에 vacation 시트가 있으면(헤더 포함 1행 이상) 그 내용으로 완전히 교체
+    // (구버전 Apps Script를 아직 재배포하지 않아 vacation 필드가 아예 없으면 로컬 값을 그대로 유지)
+    if(vRows.length>=1){
+      vacations=vRows.slice(1).filter(r=>r&&r[1]&&r[2]).map(r=>({id:+r[0]||Date.now(),start:normDate(r[1]),end:normDate(r[2]),label:r[3]||''}));
+    }
     if(sRows.length>1){
       // 시트 출석을 강사별로 모음
       const attBy={};
@@ -1018,7 +1073,10 @@ async function pullFromSheets(quiet){
       if(!modalOpen()){refresh();rMC();}
       if(!quiet){setSyncStatus('ok','동기화 완료');setLog('✓ 불러오기 완료 — '+new Date().toLocaleTimeString());}
       else setSyncStatus('ok','시트 동기화됨');
-    } else if(!quiet) setLog('시트에 데이터가 없습니다.');
+    } else {
+      if(vRows.length>=1){saveLocal();if(!modalOpen())refresh();}
+      if(!quiet) setLog(sRows.length>1?'':'시트에 데이터가 없습니다.');
+    }
   }catch(e){if(!quiet){setSyncStatus('err','불러오기 실패');setLog('오류: '+e.message);}}
 }
 function setLog(msg){const el=document.getElementById('sync-log');if(el)el.textContent=msg;}
@@ -1184,6 +1242,11 @@ function weekKey(dateStr){
   const mon=new Date(d.getFullYear(),d.getMonth(),monDate);
   return mon.getFullYear()+'-'+String(mon.getMonth()+1).padStart(2,'0')+'-'+String(mon.getDate()).padStart(2,'0');
 }
+// 방학 기간 체크: dk(YYYY-MM-DD)가 등록된 방학 기간(들) 중 하나에 포함되면 true
+// 방학 기간 중에는 모든 강사의 차량비가 지급되지 않음
+function isVacDate(dk){
+  return vacations.some(v=>v&&v.start&&v.end&&dk>=v.start&&dk<=v.end);
+}
 function gTravel(s,a,y,m){
   const rate=TRAVEL[s.region||'대전'];
   if(!rate)return 0;
@@ -1191,18 +1254,18 @@ function gTravel(s,a,y,m){
   const cy=y!==undefined?y:salY;
   const cm=m!==undefined?m:salM;
   const att=a!==undefined?a:payAtt(s,cy,cm);
-  // 이전 급여 기간에 이미 차량비가 나간 주 수집
+  // 이전 급여 기간에 이미 차량비가 나간 주 수집 (방학 기간 출근일은 제외)
   const prevM=cm-1<1?12:cm-1, prevY=cm-1<1?cy-1:cy;
   const prevAtt=payAtt(s,prevY,prevM);
   const prevWeeks=new Set();
   Object.entries(prevAtt).forEach(([k,v])=>{
-    if(!hasWork(v))return;
+    if(!hasWork(v)||isVacDate(k))return;
     prevWeeks.add(weekKey(k));
   });
-  // 현재 급여 기간의 주 중 이전 달에 이미 카운트된 주는 제외
+  // 현재 급여 기간의 주 중 이전 달에 이미 카운트된 주는 제외, 방학 기간 출근일도 제외
   const weeks=new Set();
   Object.entries(att).forEach(([k,v])=>{
-    if(!hasWork(v))return;
+    if(!hasWork(v)||isVacDate(k))return;
     const wk=weekKey(k);
     if(!prevWeeks.has(wk)) weeks.add(wk);
   });
@@ -1702,7 +1765,32 @@ function rArcDetail(i){
    SALARY
 ═══════════════════════════════════════ */function setSSCls(c){ssCls=c;ssSub='전체';rSS();}
 function setSSsSub(s){ssSub=s;rSS();}
+function addVacation(){
+  const sEl=document.getElementById('vac-start'),eEl=document.getElementById('vac-end'),lEl=document.getElementById('vac-label');
+  const s=sEl.value,e=eEl.value,lbl=(lEl.value||'').trim();
+  if(!s||!e){alert('시작일과 종료일을 입력하세요.');return;}
+  if(s>e){alert('종료일이 시작일보다 빠를 수 없습니다.');return;}
+  vacations.push({id:Date.now(),start:s,end:e,label:lbl});
+  vacations.sort((a,b)=>a.start<b.start?-1:a.start>b.start?1:0);
+  sEl.value='';eEl.value='';lEl.value='';
+  saveLocal();rVacList();refresh();pushVacations();
+}
+function rmVacation(id){
+  if(!confirm('이 방학 기간을 삭제하시겠습니까? 삭제 시 해당 기간의 차량비가 다시 계산됩니다.'))return;
+  vacations=vacations.filter(v=>v.id!==id);
+  saveLocal();rVacList();refresh();pushVacations();
+}
+function rVacList(){
+  const el=document.getElementById('vac-list');
+  if(!el)return;
+  if(!vacations.length){el.innerHTML='<div style="font-size:11px;color:var(--tx3)">등록된 방학 기간이 없습니다.</div>';return;}
+  el.innerHTML=vacations.map(v=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--bg2);border-radius:var(--r);font-size:11px">
+    <span>${v.start} ~ ${v.end}${v.label?` <span style="color:var(--tx2)">(${v.label})</span>`:''}</span>
+    <button class="btn btn-icon btn-danger" onclick="rmVacation(${v.id})"><i class="ti ti-trash"></i></button>
+  </div>`).join('');
+}
 function rSS(){
+  rVacList();
   bTabs('ss-cls-tabs','ss-sub-tabs',ssCls,ssSub,'setSSCls','setSSsSub');
   const filtStaff=nf(ssCls==='전체'?staff:staff.filter(s=>s.cls===ssCls&&(ssSub==='전체'||s.sub===ssSub)),qSS);
   const list=document.getElementById('ss-staff-list');
