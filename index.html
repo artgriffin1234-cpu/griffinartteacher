@@ -81,6 +81,7 @@ tr:hover td{background:var(--bg2)}
 .chip-sick{background:var(--rbg);color:var(--rtx);border-color:var(--rbd)}
 .chip-off{background:var(--bg2);color:var(--tx2);border-color:var(--bd)}
 .chip-blue{background:var(--bbg);color:var(--btx);border:0.5px solid var(--bbd)}
+.chip-teal{background:var(--tbg);color:var(--ttx);border:0.5px solid var(--tbg)}
 .chip-purple{background:var(--pbg);color:var(--ptx);border:0.5px solid #c5c1f8}
 .role-실장{color:var(--btx);font-size:10px}.role-강사{color:var(--gtx);font-size:10px}
 .cal-wrap{padding:.875rem}
@@ -584,7 +585,7 @@ function upsertStaffRow(ss, r){
 }
 
 function upsertAttRow(ss, tz, r){
-  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin']);
+  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin','tgRegH']);
   var vals = sh.getDataRange().getValues();
   var foundRow = 0;
   vals.forEach(function(row, i){ if(i === 0) return; if(String(row[0]) === String(r[0])){ if(keyDate(row[1], tz) === String(r[1])){ foundRow = i + 1; } } });
@@ -601,7 +602,7 @@ function deleteAttRow(ss, tz, staffId, date){
   hits.reverse().forEach(function(rn){ sh.deleteRow(rn); });
 }
 function replaceStaffAtt(ss, staffId, rows){
-  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin']);
+  var sh = ensureSheet(ss, 'attendance', ['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin','tgRegH']);
   var vals = sh.getDataRange().getValues();
   var hits = [];
   vals.forEach(function(row, i){ if(i === 0) return; if(String(row[0]) === String(staffId)){ hits.push(i + 1); } });
@@ -749,15 +750,19 @@ function clearAllSheets(ss){
       </div>
     </div>
     <div class="fg">
+      <div class="fl">특강정규 · 1타임=3시간</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="chip chip-ok" id="tgreg-0" onclick="selTgReg(0)">없음</button>
+        <button class="chip chip-ok" id="tgreg-3" onclick="selTgReg(3)">1타임</button>
+      </div>
+    </div>
+    <div class="fg">
       <div class="fl">수시특강 · 1시간 기준</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="chip chip-purple" id="susi-0" onclick="selSusi(0)">없음</button>
         <button class="chip chip-purple" id="susi-1" onclick="selSusi(1)">1시간</button>
         <button class="chip chip-purple" id="susi-2" onclick="selSusi(2)">2시간</button>
         <button class="chip chip-purple" id="susi-3" onclick="selSusi(3)">3시간</button>
-        <button class="chip chip-purple" id="susi-4" onclick="selSusi(4)">4시간</button>
-        <button class="chip chip-purple" id="susi-5" onclick="selSusi(5)">5시간</button>
-        <button class="chip chip-purple" id="susi-6" onclick="selSusi(6)">6시간</button>
       </div>
     </div>
     <div class="fg">
@@ -768,9 +773,6 @@ function clearAllSheets(ss){
         <button class="chip chip-purple" id="jeongsi-2" onclick="selJeongsi(2)">2시간</button>
         <button class="chip chip-purple" id="jeongsi-3" onclick="selJeongsi(3)">3시간</button>
         <button class="chip chip-purple" id="jeongsi-4" onclick="selJeongsi(4)">4시간</button>
-        <button class="chip chip-purple" id="jeongsi-5" onclick="selJeongsi(5)">5시간</button>
-        <button class="chip chip-purple" id="jeongsi-6" onclick="selJeongsi(6)">6시간</button>
-        <button class="chip chip-purple" id="jeongsi-7" onclick="selJeongsi(7)">7시간</button>
       </div>
     </div>
     <div class="fg">
@@ -825,7 +827,7 @@ let curPage='dashboard',dCls='전체',dSub='전체',stCls='전체',stSub='전체
 let calY=PAY_Y,calM=PAY_M-1,mcY=CUR_Y,mcM=CUR_M,arcSel=0;
 let lockView=null,lockStaffId=null;
 let mobY=CUR_Y,mobMon=CUR_M+1;
-let pendId=null,pendDate=null,pendStatus='ok',pendRegH=3,pendSusiH=0,pendJeongsiH=0,pendLateMin=60,curRole='실장';
+let pendId=null,pendDate=null,pendStatus='ok',pendRegH=3,pendTgRegH=0,pendSusiH=0,pendJeongsiH=0,pendLateMin=60,curRole='실장';
 let sheetsURL='';
 let delTomb={};
 function tombKey(id,dk){return id+'|'+dk;}
@@ -993,8 +995,8 @@ function staffToRows(){
 function vacationRows(){ return vacations.map(v=>[v.id,v.start,v.end,v.label||'']); }
 function pushVacations(){ if(sheetsURL&&!lockView) sheetPost({action:'replaceVacations',rows:vacationRows()}); }
 function attToRows(){
-  const rows=[['staffId','date','times','status','memo','regH','susiH','jeongsiH']];
-  staff.forEach(s=>{Object.entries(s.att).forEach(([k,v])=>{if(v&&v.times>0){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'']);}});});
+  const rows=[['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin','tgRegH']];
+  staff.forEach(s=>{Object.entries(s.att).forEach(([k,v])=>{if(v&&v.times>0){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg]);}});});
   return rows;
 }
 function jsonpGet(url){
@@ -1020,8 +1022,8 @@ function sheetRead(url){
   }).then(function(t){return JSON.parse(t);}).catch(function(){return jsonpGet(url);});
 }
 function staffRowFor(s){return [s.id,s.name,s.role,s.cls,s.sub,s.wage,s.sid||'',s.phone||'',s.account||'',s.birth||'',s.region||'',s.year||'',s.months||'',s.tenureAnchor||''];}
-function attRowFor(s,k){const v=s.att[k];const h=recH(v);return [s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi];}
-function attRowsForStaff(s){const rows=[];Object.keys(s.att||{}).forEach(function(k){const v=s.att[k];if(v&&(v.times>0||v.status==='sick')){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'']);}});return rows;}
+function attRowFor(s,k){const v=s.att[k];const h=recH(v);return [s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg];}
+function attRowsForStaff(s){const rows=[];Object.keys(s.att||{}).forEach(function(k){const v=s.att[k];if(v&&(v.times>0||v.status==='sick')){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg]);}});return rows;}
 function pushStaffAtt(s){if(sheetsURL&&!lockView&&s)sheetPost({action:'replaceAtt',staffId:s.id,rows:attRowsForStaff(s)});}
 function sheetPost(body){
   if(!sheetsURL||lockView)return;
@@ -1056,7 +1058,7 @@ async function pullFromSheets(quiet){
     if(sRows.length>1){
       // 시트 출석을 강사별로 모음
       const attBy={};
-      if(aRows.length>1){aRows.slice(1).forEach(r=>{const id=+r[0];const t=+r[2]||0;const rg=(r[5]!==undefined&&r[5]!=='')?+r[5]:t,su=(r[6]!==undefined&&r[6]!=='')?+r[6]:0,je=(r[7]!==undefined&&r[7]!=='')?+r[7]:0;const lm=(r[8]!==undefined&&r[8]!=='')?+r[8]:0;const rec={regH:rg,susiH:su,jeongsiH:je,times:t,status:r[3]||'ok',memo:r[4]||''};if(lm)rec.lateMin=lm;(attBy[id]=attBy[id]||{})[normDate(r[1])]=rec;});}
+      if(aRows.length>1){aRows.slice(1).forEach(r=>{const id=+r[0];const t=+r[2]||0;const rg=(r[5]!==undefined&&r[5]!=='')?+r[5]:t,su=(r[6]!==undefined&&r[6]!=='')?+r[6]:0,je=(r[7]!==undefined&&r[7]!=='')?+r[7]:0;const lm=(r[8]!==undefined&&r[8]!=='')?+r[8]:0;const tg=(r[9]!==undefined&&r[9]!=='')?+r[9]:0;const rec={regH:rg,tgRegH:tg,susiH:su,jeongsiH:je,times:t,status:r[3]||'ok',memo:r[4]||''};if(lm)rec.lateMin=lm;(attBy[id]=attBy[id]||{})[normDate(r[1])]=rec;});}
       // 시트의 강사는 추가/갱신하고 출석은 시트값으로 교체(삭제도 반영). 시트에 없는 로컬 강사는 유지.
       sRows.slice(1).forEach(r=>{const id=+r[0];let s=staff.find(x=>x.id===id);if(!s){s={id,name:r[1],role:r[2],cls:r[3],sub:r[4],wage:+r[5],sid:r[6]||'',phone:r[7]||'',account:r[8]||'',birth:r[9]?normDate(r[9]):'',region:r[10]||'',year:+r[11]||1,months:+r[12]||0,tenureAnchor:r[13]||'',att:{}};staff.push(s);}else{s.name=r[1]||s.name;s.role=r[2]||s.role;s.cls=r[3]||s.cls;s.sub=r[4]||s.sub;s.wage=+r[5]||s.wage;if(r[6]!==undefined&&r[6]!=='')s.sid=r[6];if(r[7]!==undefined&&r[7]!=='')s.phone=r[7];if(r[8]!==undefined&&r[8]!=='')s.account=r[8];if(r[9]!==undefined&&r[9]!=='')s.birth=normDate(r[9]);if(r[10]!==undefined&&r[10]!=='')s.region=r[10];if(r[11]!==undefined&&r[11]!=='')s.year=+r[11];if(r[12]!==undefined&&r[12]!=='')s.months=+r[12];if(r[13]!==undefined&&r[13]!=='')s.tenureAnchor=r[13];}
         // ★ 시트 데이터와 로컬 데이터를 병합: 시트에 있으면 시트값 우선, 없으면 로컬 유지
@@ -1225,14 +1227,14 @@ function initSalSel(){
 // 출석 기록 → 시간 분해 {정규, 수시특강, 정시특강, 합계}
 // 신규: regH(0/3/4/6), susiH(0~6), jeongsiH(0~7) / 레거시: regular(타임수), special(시간)
 function recH(v){
-  if(!v)return{reg:0,susi:0,jeongsi:0,total:0};
-  if(v.regH!==undefined||v.susiH!==undefined||v.jeongsiH!==undefined){
-    const reg=v.regH||0,susi=v.susiH||0,jeongsi=v.jeongsiH||0;
-    return{reg,susi,jeongsi,total:reg+susi+jeongsi};
+  if(!v)return{reg:0,tgReg:0,susi:0,jeongsi:0,total:0};
+  if(v.regH!==undefined||v.tgRegH!==undefined||v.susiH!==undefined||v.jeongsiH!==undefined){
+    const reg=v.regH||0,tgReg=v.tgRegH||0,susi=v.susiH||0,jeongsi=v.jeongsiH||0;
+    return{reg,tgReg,susi,jeongsi,total:reg+tgReg+susi+jeongsi};
   }
   const reg=(v.regular!==undefined?v.regular:(v.type==='regular'?(v.qty||1):(v.type!=='special'&&v.times?Math.round(v.times/3):0)))*3;
   const susi=(v.special!==undefined?v.special:(v.type==='special'?(v.qty||1):0));
-  return{reg,susi,jeongsi:0,total:reg+susi};
+  return{reg,tgReg:0,susi,jeongsi:0,total:reg+susi};
 }
 function hasWork(v){return !!v && recH(v).total>0;}
 function weekKey(dateStr){
@@ -1277,7 +1279,7 @@ function gNetOnly(s,a){const att=a!==undefined?a:salAtt(s);return Math.floor(gS(
 function gNet(s,a,y,m){const att=a!==undefined?a:salAtt(s);return gNetOnly(s,att)+gTravel(s,att,y,m);}
 function gT(s,a){return Object.values(a!==undefined?a:s.att).reduce((t,v)=>t+recH(v).total,0);}
 // 달력 셀 시간 배지: 정규 시간(어둡게) + 특강 합계 시간(보라)
-function timeBadges(r){const h=recH(r);const pill=(t,b,c)=>`<span style="background:${b};color:${c};padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;line-height:1.3">${t}</span>`;return[h.reg?pill(h.reg+'h','var(--gbg)','var(--gtx)'):'',h.susi?pill(h.susi+'h','var(--pbg)','var(--ptx)'):'',h.jeongsi?pill(h.jeongsi+'h','var(--pbg)','var(--ptx)'):''].filter(Boolean).join('');}
+function timeBadges(r){const h=recH(r);const pill=(t,b,c)=>`<span style="background:${b};color:${c};padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;line-height:1.3">${t}</span>`;return[h.reg?pill(h.reg+'h','var(--gbg)','var(--gtx)'):'',h.tgReg?pill(h.tgReg+'h','var(--tbg)','var(--ttx)'):'',h.susi?pill(h.susi+'h','var(--pbg)','var(--ptx)'):'',h.jeongsi?pill(h.jeongsi+'h','var(--pbg)','var(--ptx)'):''].filter(Boolean).join('');}
 function gS(s,a){
   const att=a!==undefined?a:s.att;
   const w=effWage(s);
@@ -1610,6 +1612,7 @@ function rAC(){
           const r=gs.att[k];const hh=recH(r);
           const parts=[];
           if(hh.reg)parts.push(`<span style="background:var(--gbg);color:var(--gtx);padding:0 3px;border-radius:2px;font-size:8px;font-weight:700">${hh.reg}h</span>`);
+          if(hh.tgReg)parts.push(`<span style="background:var(--tbg);color:var(--ttx);padding:0 3px;border-radius:2px;font-size:8px;font-weight:700">${hh.tgReg}h</span>`);
           if(hh.susi)parts.push(`<span style="background:var(--pbg);color:var(--ptx);padding:0 3px;border-radius:2px;font-size:8px;font-weight:700">${hh.susi}h</span>`);
           if(hh.jeongsi)parts.push(`<span style="background:var(--pbg);color:var(--ptx);padding:0 3px;border-radius:2px;font-size:8px;font-weight:700">${hh.jeongsi}h</span>`);
           const stClass=r.status&&r.status!=='ok'?` style="color:var(--rtx)"`:` style="color:var(--tx)"`;
@@ -1642,7 +1645,8 @@ function rAC(){
       return entries.map((e,idx)=>{
         const hh=recH(e.rec);
         const regLbl=hh.reg===3?'1타임':hh.reg===6?'2타임':hh.reg===4?'특강 1타임':(hh.reg>0?`${hh.reg}시간`:'');
-        const typeLbl=[regLbl?`<span class="chip chip-ok">${regLbl}</span>`:'',hh.susi?`<span class="chip chip-purple">수시 ${hh.susi}시간</span>`:'',hh.jeongsi?`<span class="chip chip-purple">정시 ${hh.jeongsi}시간</span>`:''].filter(Boolean).join(' ');
+        const tgRegLbl=hh.tgReg===3?'특강정규 1타임':(hh.tgReg>0?`특강정규 ${hh.tgReg}시간`:'');
+        const typeLbl=[regLbl?`<span class="chip chip-ok">${regLbl}</span>`:'',tgRegLbl?`<span class="chip chip-teal">${tgRegLbl}</span>`:'',hh.susi?`<span class="chip chip-purple">수시 ${hh.susi}시간</span>`:'',hh.jeongsi?`<span class="chip chip-purple">정시 ${hh.jeongsi}시간</span>`:''].filter(Boolean).join(' ');
         return`<tr${idx===0?' style="border-top:2px solid var(--bd)"':''}>
           <td>${idx===0?k.slice(5).replace('-','/'):''}</td>
           <td>${idx===0?DOW[(new Date(k).getDay()+6)%7]:''}</td>
@@ -1702,7 +1706,8 @@ function rAC(){
     document.getElementById('att-tbody').innerHTML=recs.map(([k,rec])=>{
       const h=recH(rec);
       const regLbl=h.reg===3?'1타임':h.reg===6?'2타임':h.reg===4?'특강 1타임':(h.reg>0?`${h.reg}시간`:'');
-      const typeLbl=[regLbl?`<span class="chip chip-ok">${regLbl}</span>`:'',h.susi?`<span class="chip chip-purple">수시 ${h.susi}시간</span>`:'',h.jeongsi?`<span class="chip chip-purple">정시 ${h.jeongsi}시간</span>`:''].filter(Boolean).join(' ');
+      const tgRegLbl=h.tgReg===3?'특강정규 1타임':(h.tgReg>0?`특강정규 ${h.tgReg}시간`:'');
+      const typeLbl=[regLbl?`<span class="chip chip-ok">${regLbl}</span>`:'',tgRegLbl?`<span class="chip chip-teal">${tgRegLbl}</span>`:'',h.susi?`<span class="chip chip-purple">수시 ${h.susi}시간</span>`:'',h.jeongsi?`<span class="chip chip-purple">정시 ${h.jeongsi}시간</span>`:''].filter(Boolean).join(' ');
       const hrs=h.total;
       return`<tr><td>${k.slice(5).replace('-','/')}</td><td>${DOW[(new Date(k).getDay()+6)%7]}</td><td>${typeLbl||'—'}</td><td>${hrs}시간</td><td><span class="chip ${SC[rec.status]||'chip-ok'}">${SL[rec.status]||'정상'}</span></td><td style="color:var(--tx2);font-size:10px">${rec.memo||'—'}</td><td><button class="btn" style="font-size:10px;padding:2px 6px" onclick="openTime(${s.id},'${k}')">수정</button></td></tr>`;
     }).join('')||`<tr><td colspan="7" class="empty">출근 기록 없음</td></tr>`;
@@ -1897,8 +1902,8 @@ function rSal(){
   const tvEl=document.getElementById('sal-travel-total');if(tvEl)tvEl.textContent=cv?totalWithTravel.toLocaleString()+'원':'—';
   document.getElementById('sal-tbody').innerHTML=fs.map(s=>{
     const sa=salAtt(s);
-    const sums=Object.values(sa).reduce((a,v)=>{const h=recH(v);a.reg+=h.reg;a.susi+=h.susi;a.jeongsi+=h.jeongsi;return a;},{reg:0,susi:0,jeongsi:0});
-    const regH=sums.reg, susiH=sums.susi, jeongsiH=sums.jeongsi;
+    const sums=Object.values(sa).reduce((a,v)=>{const h=recH(v);a.reg+=h.reg;a.tgReg+=h.tgReg;a.susi+=h.susi;a.jeongsi+=h.jeongsi;return a;},{reg:0,tgReg:0,susi:0,jeongsi:0});
+    const regH=sums.reg+sums.tgReg, susiH=sums.susi, jeongsiH=sums.jeongsi;
     const totalH=regH+susiH+jeongsiH;
     const travel=gTravel(s,sa,salY,salM);
     const netOnly=gNetOnly(s,sa);
@@ -2092,7 +2097,7 @@ function openTime(sid,dk){if(!sid||sid==='null')return;pendId=sid;pendDate=dk;co
   document.getElementById('mt-staff-row').style.display='none';
   const h=recH(rec);
   pendLateMin=rec&&rec.lateMin?rec.lateMin:60;
-  selReg(rec?h.reg:3);selSusi(h.susi);selJeongsi(h.jeongsi);
+  selReg(rec?h.reg:3);selTgReg(h.tgReg);selSusi(h.susi);selJeongsi(h.jeongsi);
   selStatus(rec?rec.status:'ok');
   selLateMin(pendLateMin);  // 항상 현재 pendLateMin 기준으로 버튼 표시 동기화
   document.getElementById('modal-time').classList.add('open');}
@@ -2108,12 +2113,12 @@ function openGroupTime(dk){
   document.getElementById('mt-staff-row').style.display='';
   document.getElementById('f-memo').value='';
   pendLateMin=60;
-  selStatus('ok');selReg(3);selSusi(0);selJeongsi(0);selLateMin(60);
+  selStatus('ok');selReg(3);selTgReg(0);selSusi(0);selJeongsi(0);selLateMin(60);
   document.getElementById('modal-time').classList.add('open');
 }
 // 그룹 모달에서 강사 선택 시 해당 강사 기존 데이터 로드
 function onGroupStaffSel(sid){
-  if(!sid){selStatus('ok');selReg(3);selSusi(0);selJeongsi(0);document.getElementById('f-memo').value='';pendId=null;return;}
+  if(!sid){selStatus('ok');selReg(3);selTgReg(0);selSusi(0);selJeongsi(0);document.getElementById('f-memo').value='';pendId=null;return;}
   pendId=+sid;
   const s=staff.find(x=>x.id==+sid);
   const rec=s?s.att[pendDate]:null;
@@ -2122,13 +2127,14 @@ function onGroupStaffSel(sid){
   document.getElementById('f-memo').value=rec?rec.memo:'';
   pendLateMin=rec&&rec.lateMin?rec.lateMin:60;
   const h=recH(rec);
-  selReg(rec?h.reg:3);selSusi(h.susi);selJeongsi(h.jeongsi);
+  selReg(rec?h.reg:3);selTgReg(h.tgReg);selSusi(h.susi);selJeongsi(h.jeongsi);
   selStatus(rec?rec.status:'ok');
   selLateMin(pendLateMin);
 }
 function selReg(h){pendRegH=h;[0,3,6,4].forEach(n=>{const el=document.getElementById('reg-'+n);if(el){el.style.outline=n===h?'2px solid var(--tx)':'none';el.style.outlineOffset='2px';}});}
-function selSusi(h){pendSusiH=h;[0,1,2,3,4,5,6].forEach(n=>{const el=document.getElementById('susi-'+n);if(el){el.style.outline=n===h?'2px solid var(--tx)':'none';el.style.outlineOffset='2px';}});}
-function selJeongsi(h){pendJeongsiH=h;[0,1,2,3,4,5,6,7].forEach(n=>{const el=document.getElementById('jeongsi-'+n);if(el){el.style.outline=n===h?'2px solid var(--tx)':'none';el.style.outlineOffset='2px';}});}
+function selTgReg(h){pendTgRegH=h;[0,3].forEach(n=>{const el=document.getElementById('tgreg-'+n);if(el){el.style.outline=n===h?'2px solid var(--tx)':'none';el.style.outlineOffset='2px';}});}
+function selSusi(h){pendSusiH=h;[0,1,2,3].forEach(n=>{const el=document.getElementById('susi-'+n);if(el){el.style.outline=n===h?'2px solid var(--tx)':'none';el.style.outlineOffset='2px';}});}
+function selJeongsi(h){pendJeongsiH=h;[0,1,2,3,4].forEach(n=>{const el=document.getElementById('jeongsi-'+n);if(el){el.style.outline=n===h?'2px solid var(--tx)':'none';el.style.outlineOffset='2px';}});}
 function selStatus(st){
   pendStatus=st;
   ['ok','late','leave','sick','off'].forEach(s=>{const el=document.getElementById('st-'+s);if(el){el.style.outline=s===st?'2px solid var(--tx)':'none';el.style.outlineOffset='2px';}});
@@ -2156,7 +2162,7 @@ function autoPushSheets(){
 }
 function saveAtt(){
   if(!pendId){alert('강사를 선택해주세요.');return;}
-  const memo=document.getElementById('f-memo').value.trim();const s=staff.find(x=>x.id==pendId);const dk=pendDate;if(s){const times=pendRegH+pendSusiH+pendJeongsiH;const hasW=times>0||pendStatus==='sick';if(hasW){const rec={regH:pendRegH,susiH:pendSusiH,jeongsiH:pendJeongsiH,times,status:pendStatus,memo};if(pendStatus==='late')rec.lateMin=pendLateMin;s.att[dk]=rec;delete delTomb[tombKey(s.id,dk)];}else{delete s.att[dk];delTomb[tombKey(s.id,dk)]=1;}}
+  const memo=document.getElementById('f-memo').value.trim();const s=staff.find(x=>x.id==pendId);const dk=pendDate;if(s){const times=pendRegH+pendTgRegH+pendSusiH+pendJeongsiH;const hasW=times>0||pendStatus==='sick';if(hasW){const rec={regH:pendRegH,tgRegH:pendTgRegH,susiH:pendSusiH,jeongsiH:pendJeongsiH,times,status:pendStatus,memo};if(pendStatus==='late')rec.lateMin=pendLateMin;s.att[dk]=rec;delete delTomb[tombKey(s.id,dk)];}else{delete s.att[dk];delTomb[tombKey(s.id,dk)]=1;}}
   if(sheetsURL&&!lockView&&s){sheetPost({action:'upsertStaff',row:staffRowFor(s)});pushStaffAtt(s);}
   closeTime();saveLocal();refresh();rMC();
 }
@@ -2220,18 +2226,18 @@ async function refreshLockedFromSheet(id){
       if(+row[0]!==+id)return;
       const dk=normDate(row[1]);
       const t=+row[2]||0;
-      let rg,su,je;
+      let rg,su,je,tg;
       if(row[5]!==undefined&&row[5]!==''){
         // 시트에 정규/수시/정시 구분이 있으면 그대로 사용
-        rg=+row[5]||0;su=(row[6]!==undefined&&row[6]!=='')?+row[6]:0;je=(row[7]!==undefined&&row[7]!=='')?+row[7]:0;
+        rg=+row[5]||0;su=(row[6]!==undefined&&row[6]!=='')?+row[6]:0;je=(row[7]!==undefined&&row[7]!=='')?+row[7]:0;tg=(row[9]!==undefined&&row[9]!=='')?+row[9]:0;
       } else {
         // 구분이 없으면(옛 형식): 같은 날짜의 파일 스냅샷 구분을 합계가 같을 때 재사용
         const ps=prevAtt[dk];
-        if(ps&&((ps.regH||0)+(ps.susiH||0)+(ps.jeongsiH||0))===t){rg=ps.regH||0;su=ps.susiH||0;je=ps.jeongsiH||0;}
-        else{rg=t;su=0;je=0;}
+        if(ps&&((ps.regH||0)+(ps.tgRegH||0)+(ps.susiH||0)+(ps.jeongsiH||0))===t){rg=ps.regH||0;tg=ps.tgRegH||0;su=ps.susiH||0;je=ps.jeongsiH||0;}
+        else{rg=t;tg=0;su=0;je=0;}
       }
       const lm2=(row[8]!==undefined&&row[8]!=='')?+row[8]:0;
-      const rec2={regH:rg,susiH:su,jeongsiH:je,times:t,status:row[3]||'ok',memo:row[4]||''};
+      const rec2={regH:rg,tgRegH:tg,susiH:su,jeongsiH:je,times:t,status:row[3]||'ok',memo:row[4]||''};
       if(lm2)rec2.lateMin=lm2;
       newAtt[dk]=rec2;
     });}
