@@ -555,7 +555,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
   if(e.parameter.action === 'write'){
     if(e.parameter.payload){
       var tzw = ss.getSpreadsheetTimeZone();
-      applyAction(ss, tzw, JSON.parse(e.parameter.payload));
+      var lockW = LockService.getScriptLock();
+      lockW.waitLock(30000);
+      try{
+        applyAction(ss, tzw, JSON.parse(e.parameter.payload));
+      } finally {
+        lockW.releaseLock();
+      }
       var cbw = e.parameter.callback;
       if(cbw){ return ContentService.createTextOutput(cbw + '(' + JSON.stringify({ok:true}) + ')').setMimeType(ContentService.MimeType.JAVASCRIPT); }
       return ContentService.createTextOutput('ok');
@@ -653,7 +659,13 @@ function doPost(e){
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var tz   = ss.getSpreadsheetTimeZone();
   var data = JSON.parse(e.postData.contents);
-  applyAction(ss, tz, data);
+  var lockP = LockService.getScriptLock();
+  lockP.waitLock(30000);
+  try{
+    applyAction(ss, tz, data);
+  } finally {
+    lockP.releaseLock();
+  }
   return ContentService.createTextOutput('ok');
 }
 function applyAction(ss, tz, data){
@@ -996,7 +1008,7 @@ function vacationRows(){ return vacations.map(v=>[v.id,v.start,v.end,v.label||''
 function pushVacations(){ if(sheetsURL&&!lockView) sheetPost({action:'replaceVacations',rows:vacationRows()}); }
 function attToRows(){
   const rows=[['staffId','date','times','status','memo','regH','susiH','jeongsiH','lateMin','tgRegH']];
-  staff.forEach(s=>{Object.entries(s.att).forEach(([k,v])=>{if(v&&v.times>0){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg]);}});});
+  staff.forEach(s=>{Object.entries(s.att).forEach(([k,v])=>{if(v&&(v.times>0||(v.status&&v.status!=='ok'))){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg]);}});});
   return rows;
 }
 function jsonpGet(url){
@@ -1015,15 +1027,19 @@ function jsonpGet(url){
   });
 }
 function sheetRead(url){
+  // 캐시 무효화: 매번 다른 URL(타임스탬프 포함)로 요청해서 모바일 브라우저/통신사 캐시로 인해
+  // 예전 응답이 재사용되는 것을 방지
+  const bust=(url.indexOf('?')>=0?'&':'?')+'_ts='+Date.now();
+  const bustedUrl=url+bust;
   // 1차: fetch(실제 https 사이트에서 대개 동작) → 실패하면 2차: JSONP(스크립트 태그, CORS 우회)
-  return fetch(url,{method:'GET'}).then(function(r){
+  return fetch(bustedUrl,{method:'GET',cache:'no-store'}).then(function(r){
     if(!r||!r.ok) throw new Error('http');
     return r.text();
-  }).then(function(t){return JSON.parse(t);}).catch(function(){return jsonpGet(url);});
+  }).then(function(t){return JSON.parse(t);}).catch(function(){return jsonpGet(bustedUrl);});
 }
 function staffRowFor(s){return [s.id,s.name,s.role,s.cls,s.sub,s.wage,s.sid||'',s.phone||'',s.account||'',s.birth||'',s.region||'',s.year||'',s.months||'',s.tenureAnchor||''];}
 function attRowFor(s,k){const v=s.att[k];const h=recH(v);return [s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg];}
-function attRowsForStaff(s){const rows=[];Object.keys(s.att||{}).forEach(function(k){const v=s.att[k];if(v&&(v.times>0||v.status==='sick')){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg]);}});return rows;}
+function attRowsForStaff(s){const rows=[];Object.keys(s.att||{}).forEach(function(k){const v=s.att[k];if(v&&(v.times>0||(v.status&&v.status!=='ok'))){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg]);}});return rows;}
 function pushStaffAtt(s){if(sheetsURL&&!lockView&&s)sheetPost({action:'replaceAtt',staffId:s.id,rows:attRowsForStaff(s)});}
 function sheetPost(body){
   if(!sheetsURL||lockView)return;
@@ -2162,11 +2178,30 @@ function autoPushSheets(){
 }
 function saveAtt(){
   if(!pendId){alert('강사를 선택해주세요.');return;}
-  const memo=document.getElementById('f-memo').value.trim();const s=staff.find(x=>x.id==pendId);const dk=pendDate;if(s){const times=pendRegH+pendTgRegH+pendSusiH+pendJeongsiH;const hasW=times>0||pendStatus==='sick';if(hasW){const rec={regH:pendRegH,tgRegH:pendTgRegH,susiH:pendSusiH,jeongsiH:pendJeongsiH,times,status:pendStatus,memo};if(pendStatus==='late')rec.lateMin=pendLateMin;s.att[dk]=rec;delete delTomb[tombKey(s.id,dk)];}else{delete s.att[dk];delTomb[tombKey(s.id,dk)]=1;}}
-  if(sheetsURL&&!lockView&&s){sheetPost({action:'upsertStaff',row:staffRowFor(s)});pushStaffAtt(s);}
+  const memo=document.getElementById('f-memo').value.trim();const s=staff.find(x=>x.id==pendId);const dk=pendDate;let savedRec=null;
+  if(s){
+    const times=pendRegH+pendTgRegH+pendSusiH+pendJeongsiH;
+    // times가 0이어도 상태를 '정상'이 아닌 값(지각/조퇴/병가/결근 등)으로 지정했다면 기록으로 저장 — 시간을 안 채워도 체크가 사라지지 않도록 함
+    const hasW=times>0||pendStatus!=='ok';
+    if(hasW){
+      const rec={regH:pendRegH,tgRegH:pendTgRegH,susiH:pendSusiH,jeongsiH:pendJeongsiH,times,status:pendStatus,memo};
+      if(pendStatus==='late')rec.lateMin=pendLateMin;
+      s.att[dk]=rec;delete delTomb[tombKey(s.id,dk)];
+      savedRec=rec;
+    }else{
+      delete s.att[dk];delTomb[tombKey(s.id,dk)]=1;
+    }
+  }
+  if(sheetsURL&&!lockView&&s){
+    sheetPost({action:'upsertStaff',row:staffRowFor(s)});
+    // 강사 전체 출석을 통째로 덮어쓰지 않고, 방금 바뀐 이 날짜 한 줄만 올려서 다른 사람이 동시에
+    // 다른 날짜를 체크해도 서로 덮어쓰지 않게 함
+    if(savedRec){ sheetPost({action:'upsertAtt',row:attRowFor(s,dk)}); }
+    else{ sheetPost({action:'deleteAtt',staffId:s.id,date:dk}); }
+  }
   closeTime();saveLocal();refresh();rMC();
 }
-function delAtt(){const s=staff.find(x=>x.id==pendId);const dk=pendDate;if(s){delete s.att[dk];delTomb[tombKey(s.id,dk)]=1;}if(sheetsURL&&!lockView&&s)pushStaffAtt(s);closeTime();saveLocal();refresh();rMC();}
+function delAtt(){const s=staff.find(x=>x.id==pendId);const dk=pendDate;if(s){delete s.att[dk];delTomb[tombKey(s.id,dk)]=1;}if(sheetsURL&&!lockView&&s)sheetPost({action:'deleteAtt',staffId:s.id,date:dk});closeTime();saveLocal();refresh();rMC();}
 
 /* ═══════════════════════════════════════
    EXPORT CSV
