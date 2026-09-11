@@ -1120,12 +1120,23 @@ async function pullFromSheets(quiet){
       if(aRows.length>1){aRows.slice(1).forEach(r=>{const id=+r[0];const t=+r[2]||0;const rg=(r[5]!==undefined&&r[5]!=='')?+r[5]:t,su=(r[6]!==undefined&&r[6]!=='')?+r[6]:0,je=(r[7]!==undefined&&r[7]!=='')?+r[7]:0;const lm=(r[8]!==undefined&&r[8]!=='')?+r[8]:0;const tg=(r[9]!==undefined&&r[9]!=='')?+r[9]:0;const rec={regH:rg,tgRegH:tg,susiH:su,jeongsiH:je,times:t,status:r[3]||'ok',memo:r[4]||''};if(lm)rec.lateMin=lm;(attBy[id]=attBy[id]||{})[normDate(r[1])]=rec;});}
       // 시트의 강사는 추가/갱신하고 출석은 시트값으로 교체(삭제도 반영). 시트에 없는 로컬 강사는 유지.
       sRows.slice(1).forEach(r=>{const id=+r[0];let s=staff.find(x=>x.id===id);if(!s){s={id,name:r[1],role:r[2],cls:r[3],sub:r[4],wage:+r[5],sid:r[6]||'',phone:r[7]||'',account:r[8]||'',birth:r[9]?normDate(r[9]):'',region:r[10]||'',year:+r[11]||1,months:+r[12]||0,tenureAnchor:r[13]||'',att:{}};staff.push(s);}else{s.name=r[1]||s.name;s.role=r[2]||s.role;s.cls=r[3]||s.cls;s.sub=r[4]||s.sub;s.wage=+r[5]||s.wage;if(r[6]!==undefined&&r[6]!=='')s.sid=r[6];if(r[7]!==undefined&&r[7]!=='')s.phone=r[7];if(r[8]!==undefined&&r[8]!=='')s.account=r[8];if(r[9]!==undefined&&r[9]!=='')s.birth=normDate(r[9]);if(r[10]!==undefined&&r[10]!=='')s.region=r[10];if(r[11]!==undefined&&r[11]!=='')s.year=+r[11];if(r[12]!==undefined&&r[12]!=='')s.months=+r[12];if(r[13]!==undefined&&r[13]!=='')s.tenureAnchor=r[13];}
-        // ★ 시트 데이터와 로컬 데이터를 병합: 시트에 있으면 시트값 우선, 없으면 로컬 유지
+        // ★ 시트가 정본: 이 강사의 시트 출석 기록이 하나라도 있으면 로컬을 시트 내용으로 통째로 교체합니다.
+        // (예전엔 Object.assign으로 "병합"만 해서, 다른 기기에서 삭제한 날짜가 이 기기 로컬에
+        //  남아있으면 pull을 해도 안 지워지는 문제가 있었음 — 그래서 기기마다 다르게 보였던 것)
+        // 단, 아직 서버에 전송 확정되지 않고 대기열(pushQueue)에 남아있는 이 강사의 변경은
+        // 이번 교체로 사라지지 않도록 별도로 보존했다가 다시 얹어줍니다.
         const sheetAtt=attBy[id]||{};
-        // 시트에 이 강사 기록이 하나라도 있을 때만 병합 (아예 없으면 로컬 보존)
         if(Object.keys(sheetAtt).length>0){
-          // 로컬에만 있는 날짜는 유지하되, 시트에도 있는 날짜는 시트 값으로 덮어씀
-          Object.assign(s.att, sheetAtt);
+          const pendingDates={};
+          pushQueue.forEach(function(item){
+            const b=item&&item.body;
+            if(!b||String(b.staffId)!==String(id))return;
+            if(b.action==='upsertAtt'&&b.row&&b.row[1]) pendingDates[b.row[1]]=true;
+            if(b.action==='replaceAtt'&&Array.isArray(b.rows)) b.rows.forEach(function(rr){if(rr&&rr[1])pendingDates[rr[1]]=true;});
+          });
+          const preserved={};
+          Object.keys(pendingDates).forEach(function(dk){ if(s.att&&s.att[dk]!==undefined) preserved[dk]=s.att[dk]; });
+          s.att = Object.assign({}, sheetAtt, preserved);
         }
         // 시트에 기록이 전혀 없으면 로컬 att 그대로 유지 (s.att 건드리지 않음)
         applyTomb(s);});
