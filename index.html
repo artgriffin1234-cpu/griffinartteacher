@@ -529,10 +529,20 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
           <div class="code-block" id="apps-script-code">// 이 환경에서는 날짜 셀 값이 "instanceof Date"로는 인식되지 않는 경우가 있어(진단으로 확인됨),
 // 더 안정적인 방식(내부 클래스 태그 확인)으로 날짜 여부를 판단합니다.
 function isDateLike(v){ return !!v && Object.prototype.toString.call(v) === '[object Date]'; }
+// Utilities.formatDate 호출 1번마다 약간의 지연이 있어서, 출석 2천 건 넘게 매번 개별 호출하면
+// 조회/저장이 수십 초까지 느려질 수 있음. 같은 날짜 값은 캐시해서 재사용(같은 날짜를 여러 강사가
+// 공유하는 경우가 많아 실제 호출 횟수가 크게 줄어듦).
+var _dateFmtCache = {};
+function fmtDateCached(v, tz){
+  var key = v.getTime();
+  var c = _dateFmtCache[key];
+  if(c === undefined){ c = Utilities.formatDate(v, tz, 'yyyy-MM-dd'); _dateFmtCache[key] = c; }
+  return c;
+}
 
 function doGet(e){
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if(e.parameter.action === 'ping'){ return ContentService.createTextOutput('OK-DELETE-V7-FIXED'); }
+  if(e.parameter.action === 'ping'){ return ContentService.createTextOutput('OK-DELETE-V8-FAST'); }
   if(e.parameter.action === 'read'){
     var tz = ss.getSpreadsheetTimeZone();
     var staffSheet = ss.getSheetByName('staff');
@@ -543,15 +553,15 @@ function doGet(e){
     var vacData    = vacSheet ? vacSheet.getDataRange().getValues() : [];
     staffData.forEach(function(row, i){
       if(i === 0) return;
-      row.forEach(function(cell, c){ if(isDateLike(cell)){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
+      row.forEach(function(cell, c){ if(isDateLike(cell)){ row[c] = fmtDateCached(cell, tz); } });
     });
     attData.forEach(function(row, i){
       if(i === 0) return;
-      if(isDateLike(row[1])){ row[1] = Utilities.formatDate(row[1], tz, 'yyyy-MM-dd'); }
+      if(isDateLike(row[1])){ row[1] = fmtDateCached(row[1], tz); }
     });
     vacData.forEach(function(row, i){
       if(i === 0) return;
-      row.forEach(function(cell, c){ if(isDateLike(cell)){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
+      row.forEach(function(cell, c){ if(isDateLike(cell)){ row[c] = fmtDateCached(cell, tz); } });
     });
     var payload = JSON.stringify({staff:staffData, att:attData, vacation:vacData});
     var cb = e.parameter.callback;
@@ -576,7 +586,7 @@ function doGet(e){
   return ContentService.createTextOutput('ok');
 }
 
-function keyDate(v, tz){ var s; if(isDateLike(v)){ s = Utilities.formatDate(v, tz, 'yyyy-MM-dd'); } else { s = String(v); } if(s.length > 10){ s = s.substring(0, 10); } return s; }
+function keyDate(v, tz){ var s; if(isDateLike(v)){ s = fmtDateCached(v, tz); } else { s = String(v); } if(s.length > 10){ s = s.substring(0, 10); } return s; }
 
 function ensureSheet(ss, name, header){
   var sh = ss.getSheetByName(name);
