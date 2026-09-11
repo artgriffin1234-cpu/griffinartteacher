@@ -156,7 +156,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
 .sync-bar{display:flex;align-items:center;gap:8px;padding:.625rem 1rem;border-bottom:0.5px solid var(--bd);background:var(--bg);font-size:11px;flex-wrap:wrap}
 .sync-status{display:flex;align-items:center;gap:5px;font-size:11px}
 .sync-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.sync-dot.ok{background:var(--sync-ok)}.sync-dot.err{background:var(--sync-err)}.sync-dot.pending{background:var(--sync-pending)}.sync-dot.off{background:var(--bd3)}
+.sync-dot.ok{background:var(--sync-ok)}.sync-dot.err{background:var(--sync-err);animation:syncPulse 1s ease-in-out infinite}.sync-dot.pending{background:var(--sync-pending)}.sync-dot.off{background:var(--bd3)}
+@keyframes syncPulse{0%,100%{opacity:1}50%{opacity:.3}}
+.sync-status.has-err{color:var(--sync-err);font-weight:600}
 .sync-input-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .sync-section{border:0.5px solid var(--bd);border-radius:var(--rm);padding:.875rem;margin-bottom:.875rem}
 .sync-section-title{font-size:12px;font-weight:600;margin-bottom:.625rem;display:flex;align-items:center;gap:6px}
@@ -841,6 +843,8 @@ let lockView=null,lockStaffId=null;
 let mobY=CUR_Y,mobMon=CUR_M+1;
 let pendId=null,pendDate=null,pendStatus='ok',pendRegH=3,pendTgRegH=0,pendSusiH=0,pendJeongsiH=0,pendLateMin=60,curRole='실장';
 let sheetsURL='';
+let pushQueue=[]; // 업로드에 실패한 요청을 담아뒀다가 자동으로 재시도. 새로고침/종료해도 남아있도록 로컬에 저장됨
+let retryingQueue=false;
 let delTomb={};
 function tombKey(id,dk){return id+'|'+dk;}
 function applyTomb(s){
@@ -857,7 +861,7 @@ let syncConnected=false;
 ═══════════════════════════════════════ */
 function saveLocal(){
   try{
-    localStorage.setItem(LS_KEY,JSON.stringify({staff,archives,nextId,sheetsURL,delTomb,vacations,ts:Date.now()}));
+    localStorage.setItem(LS_KEY,JSON.stringify({staff,archives,nextId,sheetsURL,delTomb,vacations,pushQueue,ts:Date.now()}));
     setSaveStatus('ok','로컬 저장됨');
   }catch(e){setSaveStatus('err','저장 실패');}
 }
@@ -901,6 +905,7 @@ function loadLocal(){
     nextId=d.nextId||100;
     sheetsURL=d.sheetsURL||'';
     vacations=d.vacations||[];
+    pushQueue=Array.isArray(d.pushQueue)?d.pushQueue:[];
     if(sheetsURL) document.getElementById('sheets-url').value=sheetsURL;
     return true;
   }catch(e){return false;}
@@ -955,12 +960,17 @@ function clearSheetAll(){
 function clearAttOnly(){
   if(!confirm('모든 강사의 출석 기록을 삭제합니다. 강사 명단은 유지됩니다. 계속할까요?'))return;
   staff.forEach(s=>s.att={});
+  // 기기별로 남아있던 삭제기록(tombstone)·미전송 대기열도 함께 비워야
+  // 다음 "시트에서 불러오기"가 이 시트의 실제 내용을 그대로 반영합니다.
+  // (안 비우면 이 기기가 예전에 시도했던 삭제만 되살아나 다른 기기와 내용이 달라질 수 있음)
+  delTomb={};pushQueue=[];
   saveLocal();refresh();rMC();
   alert('출석 기록이 초기화되었습니다.');
 }
 function clearAllData(){
   if(!confirm('모든 데이터를 삭제합니다. 계속할까요?'))return;
   localStorage.removeItem(LS_KEY);
+  delTomb={};pushQueue=[];
   loadSampleData();saveLocal();refresh();rMC();
   alert('초기화 완료.');
 }
@@ -974,10 +984,10 @@ function setSyncStatus(type,msg){
   const navDot=document.getElementById('sync-nav-dot');
   const pageStatus=document.getElementById('sync-page-status');
   const topStatus=document.getElementById('top-sync-status');
-  const pageTxt=document.getElementById('sync-page-txt');
+  const errCls=type==='err'?' has-err':'';
   navDot.className='sync-dot '+dot;
-  if(pageStatus) pageStatus.innerHTML=`<span class="sync-dot ${dot}"></span><span id="sync-page-txt">${msg}</span>`;
-  if(topStatus) topStatus.innerHTML=`<span class="sync-dot ${dot}"></span><span>${msg}</span>`;
+  if(pageStatus){pageStatus.className='sync-status'+errCls;pageStatus.innerHTML=`<span class="sync-dot ${dot}"></span><span id="sync-page-txt">${msg}</span>`;}
+  if(topStatus){topStatus.className='sync-status'+errCls;topStatus.innerHTML=`<span class="sync-dot ${dot}"></span><span>${msg}</span>`;}
 }
 function saveSheetURL(){
   sheetsURL=document.getElementById('sheets-url').value.replace(/\s+/g,'');
@@ -1041,12 +1051,40 @@ function staffRowFor(s){return [s.id,s.name,s.role,s.cls,s.sub,s.wage,s.sid||'',
 function attRowFor(s,k){const v=s.att[k];const h=recH(v);return [s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg];}
 function attRowsForStaff(s){const rows=[];Object.keys(s.att||{}).forEach(function(k){const v=s.att[k];if(v&&(v.times>0||(v.status&&v.status!=='ok'))){const h=recH(v);rows.push([s.id,k,v.times,v.status||'ok',v.memo||'',h.reg,h.susi,h.jeongsi,v.lateMin||'',h.tgReg]);}});return rows;}
 function pushStaffAtt(s){if(sheetsURL&&!lockView&&s)sheetPost({action:'replaceAtt',staffId:s.id,rows:attRowsForStaff(s)});}
+// 요청 한 번을 실제로 시도(fetch → 실패 시 JSONP). 성공하면 resolve, 둘 다 실패하면 reject
+function pushOnce(body){
+  return new Promise(function(resolve,reject){
+    const url=sheetsURL+'?action=write&payload='+encodeURIComponent(JSON.stringify(body));
+    const fb=function(){jsonpGet(url).then(resolve,reject);};
+    fetch(sheetsURL,{method:'POST',body:JSON.stringify(body),cache:'no-store'}).then(function(r){if(r&&r.ok)resolve();else fb();},fb);
+  });
+}
+function queueStatusMsg(){return `동기화 실패 — ${pushQueue.length}건 대기 중 (자동 재시도)`;}
 function sheetPost(body){
   if(!sheetsURL||lockView)return;
   setSyncStatus('pending','시트 동기화 중...');
-  const url=sheetsURL+'?action=write&payload='+encodeURIComponent(JSON.stringify(body));
-  const fb=function(){jsonpGet(url).then(function(){setSyncStatus('ok','시트 동기화됨');},function(){setSyncStatus('err','시트 동기화 실패');});};
-  fetch(sheetsURL,{method:'POST',body:JSON.stringify(body)}).then(function(r){if(r&&r.ok){setSyncStatus('ok','시트 동기화됨');}else{fb();}},function(){fb();});
+  pushOnce(body).then(function(){
+    if(pushQueue.length){ setSyncStatus('ok',`시트 동기화됨 (밀린 ${pushQueue.length}건 재시도 중)`); retryPushQueue(); }
+    else setSyncStatus('ok','시트 동기화됨');
+  },function(){
+    pushQueue.push({body:body,ts:Date.now()});
+    saveLocal();
+    setSyncStatus('err',queueStatusMsg());
+  });
+}
+// 실패해서 쌓인 요청을 순서대로 하나씩 재시도. 성공한 것만 큐에서 빼고, 실패하면 남겨뒀다가 다음 기회에 다시 시도
+function retryPushQueue(){
+  if(retryingQueue||!sheetsURL||lockView||!pushQueue.length)return;
+  retryingQueue=true;
+  const item=pushQueue[0];
+  pushOnce(item.body).then(function(){
+    pushQueue.shift();saveLocal();retryingQueue=false;
+    if(pushQueue.length) retryPushQueue();
+    else setSyncStatus('ok','시트 동기화됨');
+  },function(){
+    retryingQueue=false;
+    setSyncStatus('err',queueStatusMsg());
+  });
 }
 function pushStaff(s){if(sheetsURL&&!lockView&&s)sheetPost({action:'upsertStaff',row:staffRowFor(s)});}
 function modalOpen(){const m=document.getElementById('modal-time');return !!(m&&m.classList&&m.classList.contains('open'));}
@@ -2291,7 +2329,15 @@ rD();rMC();
 if(sheetsURL&&!lockView){
   setSyncStatus('pending','연결 중...');
   pullFromSheets(false);
-  setInterval(function(){if(sheetsURL&&!lockView&&!modalOpen())pullFromSheets(true);},30000);
+  if(pushQueue.length) retryPushQueue(); // 이전에 못 올린 게 남아있으면 켜지자마자 재시도
+  setInterval(function(){
+    if(sheetsURL&&!lockView&&!modalOpen()){
+      pullFromSheets(true);
+      if(pushQueue.length) retryPushQueue();
+    }
+  },30000);
+  // 인터넷이 끊겼다가 다시 연결되는 순간 바로 재시도 (30초씩 기다리지 않도록)
+  window.addEventListener('online',function(){if(sheetsURL&&!lockView&&pushQueue.length)retryPushQueue();});
 }
 if(lockView==='staff')enterLockedMobile(lockStaffId);
 </script>
