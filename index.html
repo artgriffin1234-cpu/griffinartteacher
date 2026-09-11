@@ -526,9 +526,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
           <div class="sync-section-title"><span class="step-badge">2</span>Apps Script 웹앱 배포</div>
           <p style="font-size:11px;color:var(--tx2);margin-bottom:.625rem">스프레드시트 메뉴 → <b>확장 프로그램 → Apps Script</b> 에서 아래 코드를 붙여넣고 <b>배포 → 새 배포 → 웹앱</b>으로 게시하세요. 액세스 권한은 <b>"모든 사용자"</b>로 설정하세요.</p>
           <button class="btn" onclick="copyScript()" style="margin-bottom:.5rem"><i class="ti ti-copy"></i>스크립트 코드 복사</button>
-          <div class="code-block" id="apps-script-code">function doGet(e){
+          <div class="code-block" id="apps-script-code">// 이 환경에서는 날짜 셀 값이 "instanceof Date"로는 인식되지 않는 경우가 있어(진단으로 확인됨),
+// 더 안정적인 방식(내부 클래스 태그 확인)으로 날짜 여부를 판단합니다.
+function isDateLike(v){ return !!v && Object.prototype.toString.call(v) === '[object Date]'; }
+
+function doGet(e){
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if(e.parameter.action === 'ping'){ return ContentService.createTextOutput('OK-DELETE-V3'); }
+  if(e.parameter.action === 'ping'){ return ContentService.createTextOutput('OK-DELETE-V7-FIXED'); }
   if(e.parameter.action === 'read'){
     var tz = ss.getSpreadsheetTimeZone();
     var staffSheet = ss.getSheetByName('staff');
@@ -539,15 +543,15 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
     var vacData    = vacSheet ? vacSheet.getDataRange().getValues() : [];
     staffData.forEach(function(row, i){
       if(i === 0) return;
-      row.forEach(function(cell, c){ if(cell instanceof Date){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
+      row.forEach(function(cell, c){ if(isDateLike(cell)){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
     });
     attData.forEach(function(row, i){
       if(i === 0) return;
-      if(row[1] instanceof Date){ row[1] = Utilities.formatDate(row[1], tz, 'yyyy-MM-dd'); }
+      if(isDateLike(row[1])){ row[1] = Utilities.formatDate(row[1], tz, 'yyyy-MM-dd'); }
     });
     vacData.forEach(function(row, i){
       if(i === 0) return;
-      row.forEach(function(cell, c){ if(cell instanceof Date){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
+      row.forEach(function(cell, c){ if(isDateLike(cell)){ row[c] = Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); } });
     });
     var payload = JSON.stringify({staff:staffData, att:attData, vacation:vacData});
     var cb = e.parameter.callback;
@@ -572,7 +576,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--bd3)}
   return ContentService.createTextOutput('ok');
 }
 
-function keyDate(v, tz){ var s; if(v instanceof Date){ s = Utilities.formatDate(v, tz, 'yyyy-MM-dd'); } else { s = String(v); } if(s.length > 10){ s = s.substring(0, 10); } return s; }
+function keyDate(v, tz){ var s; if(isDateLike(v)){ s = Utilities.formatDate(v, tz, 'yyyy-MM-dd'); } else { s = String(v); } if(s.length > 10){ s = s.substring(0, 10); } return s; }
 
 function ensureSheet(ss, name, header){
   var sh = ss.getSheetByName(name);
@@ -689,7 +693,8 @@ function clearAllSheets(ss){
     var sh = ss.getSheetByName(name);
     if(sh){ var last = sh.getLastRow(); if(last > 1){ sh.deleteRows(2, last - 1); } }
   });
-}</div>
+}
+</div>
         </div>
 
         <div class="sync-section">
